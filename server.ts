@@ -43,27 +43,31 @@ function performBackup() {
 
   try {
     if (fs.existsSync("inventory.db")) {
-      fs.copyFileSync("inventory.db", backupFile);
-      console.log(`✅ Database backed up to: ${backupFile}`);
+      db.backup(backupFile)
+        .then(() => {
+          console.log(`✅ Database backed up to: ${backupFile}`);
+          // Manage rotation: keep only last 24 backups
+          const files = fs.readdirSync(backupDir)
+            .filter(file => file.startsWith("inventory_") && file.endsWith(".db"))
+            .map(file => ({ 
+              name: file, 
+              time: fs.statSync(path.join(backupDir, file)).mtime.getTime() 
+            }))
+            .sort((a, b) => b.time - a.time);
 
-      // Manage rotation: keep only last 7 backups
-      const files = fs.readdirSync(backupDir)
-        .filter(file => file.startsWith("inventory_") && file.endsWith(".db"))
-        .map(file => ({ 
-          name: file, 
-          time: fs.statSync(path.join(backupDir, file)).mtime.getTime() 
-        }))
-        .sort((a, b) => b.time - a.time);
-
-      if (files.length > 7) {
-        files.slice(7).forEach(file => {
-          fs.unlinkSync(path.join(backupDir, file.name));
-          console.log(`🗑️ Deleted old backup: ${file.name}`);
+          if (files.length > 24) {
+            files.slice(24).forEach(file => {
+              fs.unlinkSync(path.join(backupDir, file.name));
+              console.log(`🗑️ Deleted old backup: ${file.name}`);
+            });
+          }
+        })
+        .catch(err => {
+          console.error("❌ Backup failed:", err);
         });
-      }
     }
   } catch (err) {
-    console.error("❌ Backup failed:", err);
+    console.error("❌ Backup operation error:", err);
   }
 }
 
