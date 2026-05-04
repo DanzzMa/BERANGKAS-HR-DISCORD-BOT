@@ -38,7 +38,7 @@ if (fs.existsSync(configPath)) {
   }
 }
 
-const PORT = Number(process.env.PORT) || 3000;
+const PORT = Number(process.env.PORT) || 3001;
 
 // --- DATABASE SETUP (SQLite) ---
 const db = new Database("inventory.db");
