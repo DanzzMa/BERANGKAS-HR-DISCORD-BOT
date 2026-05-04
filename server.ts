@@ -89,19 +89,26 @@ async function addTransactionToDB(data: any) {
         const name = data.barang.toLowerCase();
         
         const categories = {
-          "Makanan": ["roti", "air", "nasi", "burger", "daging", "ikan", "snack", "buah", "indomie", "kopi", "susu"],
+          "Makanan": ["roti", "air", "nasi", "burger", "daging", "ikan", "snack", "buah", "indomie", "kopi", "susu", "raw", "mentah"],
           "Senjata": ["glock", "ak47", "m4", "peluru", "ammo", "mag", "shotgun", "riffle", "pistol", "senjata", "knife"],
           "Medis": ["medkit", "bandage", "perban", "obat", "vitamin", "p3k", "suntik", "infus", "darah", "aspirin"],
-          "Tools": ["palu", "kunci", "obeng", "tang", "bor", "kapak", "skop", "besi", "scrap", "part", "komponen", "mesin"]
+          "Tools": ["palu", "kunci", "obeng", "tang", "bor", "kapak", "skop", "scrap", "part", "komponen", "mesin", "perkakas", "gergaji"]
         };
 
         let foundMatch = false;
-        for (const [catName, keywords] of Object.entries(categories)) {
-          if (keywords.some(kw => name.includes(kw))) {
-            finalKategori = catName;
-            foundMatch = true;
-            console.log(`🧠 Smart Categorization (Keyword): Auto-detected ${data.barang} as [${finalKategori}]`);
-            break;
+        
+        // Cek jika Besi (harus masuk Item)
+        if (name.includes("besi") || name.includes("batu") || name.includes("kayu")) {
+          finalKategori = "Item";
+          foundMatch = true;
+        } else {
+          for (const [catName, keywords] of Object.entries(categories)) {
+            if (keywords.some(kw => name.includes(kw))) {
+              finalKategori = catName;
+              foundMatch = true;
+              console.log(`🧠 Smart Categorization (Keyword): Auto-detected ${data.barang} as [${finalKategori}]`);
+              break;
+            }
           }
         }
 
