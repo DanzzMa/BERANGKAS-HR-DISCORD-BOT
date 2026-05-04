@@ -11,15 +11,27 @@ dotenv.config();
 // --- CONFIG LOADING ---
 let config = {
   DISCORD_TOKEN: process.env.DISCORD_TOKEN,
-  DISCORD_CLIENT_ID: process.env.DISCORD_CLIENT_ID
+  DISCORD_CLIENT_ID: process.env.DISCORD_CLIENT_ID,
+  DISCORD_STOCK_CHANNEL_ID: process.env.DISCORD_STOCK_CHANNEL_ID as string || "",
+  DISCORD_STOCK_MESSAGE_ID: process.env.DISCORD_STOCK_MESSAGE_ID as string || ""
 };
 
 const configPath = path.join(process.cwd(), "config.json");
+const saveConfig = () => {
+  try {
+    fs.writeFileSync(configPath, JSON.stringify(config, null, 2), "utf-8");
+  } catch (err) {
+    console.error("❌ Gagal menyimpan config.json:", err);
+  }
+};
+
 if (fs.existsSync(configPath)) {
   try {
     const fileConfig = JSON.parse(fs.readFileSync(configPath, "utf-8"));
     if (fileConfig.DISCORD_TOKEN) config.DISCORD_TOKEN = fileConfig.DISCORD_TOKEN;
     if (fileConfig.DISCORD_CLIENT_ID) config.DISCORD_CLIENT_ID = fileConfig.DISCORD_CLIENT_ID;
+    if (fileConfig.DISCORD_STOCK_CHANNEL_ID) config.DISCORD_STOCK_CHANNEL_ID = fileConfig.DISCORD_STOCK_CHANNEL_ID;
+    if (fileConfig.DISCORD_STOCK_MESSAGE_ID) config.DISCORD_STOCK_MESSAGE_ID = fileConfig.DISCORD_STOCK_MESSAGE_ID;
     console.log("📂 Loaded Discord config from config.json");
   } catch (err) {
     console.warn("⚠️ Gagal membaca config.json, menggunakan environment variables.");
@@ -93,6 +105,80 @@ db.exec(`
 `);
 console.log("✅ SQLite initialized successfully.");
 
+// --- DISCORD STOCK DISPLAY AUTO-UPDATE ---
+async function updateDiscordStockDisplay() {
+  if (!config.DISCORD_STOCK_CHANNEL_ID) return;
+  if (!client.isReady()) return;
+
+  try {
+    const channel = await client.channels.fetch(config.DISCORD_STOCK_CHANNEL_ID);
+    if (!channel || !channel.isTextBased()) return;
+
+    const textChannel = channel as any; // Cast for simplicity with diverse text channel types
+
+    const data = await getTransactionsFromDB();
+    const stock: Record<string, { qty: number; kategori: string }> = {};
+    
+    (data as any[]).forEach((row: any) => {
+      const amt = Number(row.jumlah) || 0;
+      const change = row.tipe === "IN" ? amt : -amt;
+      if (!stock[row.barang]) {
+        stock[row.barang] = { qty: 0, kategori: row.kategori || "Umum" };
+      }
+      stock[row.barang].qty += change;
+      stock[row.barang].kategori = row.kategori || "Umum";
+    });
+
+    const categories: Record<string, string[]> = {};
+    Object.entries(stock)
+      .sort(([nameA], [nameB]) => nameA.localeCompare(nameB))
+      .forEach(([name, detail]) => {
+        if (!categories[detail.kategori]) categories[detail.kategori] = [];
+        const status = detail.qty <= 5 ? "⚠️" : (detail.qty === 0 ? "❌" : "✅");
+        categories[detail.kategori].push(`${status} **${name}**: \`${detail.qty}\``);
+      });
+
+    const embed = new EmbedBuilder()
+      .setTitle("🏢 Ringkasan Stok Gudang (Update Otomatis)")
+      .setColor(0x10b981)
+      .setDescription(`Terakhir diperbarui: <t:${Math.floor(Date.now() / 1000)}:R>\n_Pesan ini diperbarui otomatis setiap kali ada transaksi atau per 5 menit._`)
+      .setTimestamp()
+      .setFooter({ text: "Inventory Auto-Update System" });
+
+    if (Object.keys(categories).length === 0) {
+      embed.addFields({ name: "Info", value: "_Gudang kosong._" });
+    } else {
+      Object.entries(categories).forEach(([cat, items]) => {
+        embed.addFields({ name: `📁 ${cat}`, value: items.join("\n").substring(0, 1024) });
+      });
+    }
+
+    if (config.DISCORD_STOCK_MESSAGE_ID) {
+      try {
+        const message = await textChannel.messages.fetch(config.DISCORD_STOCK_MESSAGE_ID);
+        if (message) {
+          await message.edit({ embeds: [embed] });
+          // console.log("🔄 Discord Stock Display updated (Edited).");
+          return;
+        }
+      } catch (err) {
+        console.warn("⚠️ Pesan stok tidak ditemukan, mengirim pesan baru...");
+      }
+    }
+
+    // Jika belum ada ID atau pesan lama terhapus, kirim pesan baru
+    const sent = await textChannel.send({ embeds: [embed] });
+    config.DISCORD_STOCK_MESSAGE_ID = sent.id;
+    saveConfig();
+    console.log("🆕 Discord Stock Display initialized (New Message).");
+  } catch (err) {
+    console.error("❌ Gagal update Discord stock display:", err);
+  }
+}
+
+// Update berkala setiap 5 menit
+setInterval(updateDiscordStockDisplay, 5 * 60 * 1000);
+
 async function addTransactionToDB(data: any) {
   let finalKategori = data.kategori || "Umum";
 
@@ -111,24 +197,27 @@ async function addTransactionToDB(data: any) {
         const name = data.barang.toLowerCase();
         
         const categories = {
-          "Makanan": ["roti", "air", "nasi", "burger", "daging", "ikan", "snack", "buah", "indomie", "kopi", "susu", "raw", "mentah"],
-          "Senjata": ["glock", "ak47", "m4", "peluru", "ammo", "mag", "shotgun", "riffle", "pistol", "senjata", "knife"],
-          "Medis": ["medkit", "bandage", "perban", "obat", "vitamin", "p3k", "suntik", "infus", "darah", "aspirin"],
-          "Tools": ["palu", "kunci", "obeng", "tang", "bor", "kapak", "skop", "scrap", "part", "komponen", "mesin", "perkakas", "gergaji"]
+          "Minuman": ["water", "drink", "susu", "kopi", "teh", "juice", "air"],
+          "Medis": ["bandage", "kit", "antibiotics", "napkins", "obat", "vitamin", "p3k", "suntik", "alcohol"],
+          "Tools": ["axe", "pickaxe", "hammer", "wrench", "nail gun", "palu", "kapak", "bor", "gergaji"],
+          "Makanan": ["raw", "cooked", "deer", "boar", "pork", "coyote", "rabbit", "beef", "chicken", "fish", "flour", "sugar", "nuts", "rice", "fingers", "makan", "nasi", "burger", "daging", "snack", "buah", "indomie"],
+          "Umum": ["leather", "fabric", "plastic", "kit", "clothes", "shoes", "wallet", "armor", "rebar", "log", "cork", "besi", "scrap", "umum"],
+          "Item": ["rope", "rubber", "plank", "pipe", "shard", "bolt", "besi", "batu", "kayu", "part", "komponen", "item"]
         };
 
         let foundMatch = false;
         
-        // Cek jika Besi (harus masuk Item)
-        if (name.includes("besi") || name.includes("batu") || name.includes("kayu")) {
+        // Prioritas pertama untuk material dasar
+        if (name.includes("besi") || name.includes("batu") || name.includes("kayu") || name.includes("bolt") || name.includes("shard")) {
           finalKategori = "Item";
           foundMatch = true;
         } else {
+          // Cek berdasarkan keyword kategori
           for (const [catName, keywords] of Object.entries(categories)) {
             if (keywords.some(kw => name.includes(kw))) {
               finalKategori = catName;
               foundMatch = true;
-              console.log(`🧠 Smart Categorization (Keyword): Auto-detected ${data.barang} as [${finalKategori}]`);
+              console.log(`🧠 Smart Categorization: Auto-detected ${data.barang} as [${finalKategori}]`);
               break;
             }
           }
@@ -151,6 +240,9 @@ async function addTransactionToDB(data: any) {
   const jumlahAbs = Math.abs(Number(data.jumlah));
   stmt.run(data.barang, jumlahAbs, data.tipe, data.keterangan, data.oleh, finalKategori, data.image_url || null, data.icon || null);
   
+  // Update Discord display after transaction (background)
+  updateDiscordStockDisplay();
+
   return { ...data, kategori: finalKategori };
 }
 
@@ -788,6 +880,7 @@ if (config.DISCORD_TOKEN) {
   client.login(config.DISCORD_TOKEN).then(() => {
     console.log(`✅ Bot berhasil login sebagai ${client.user?.tag}`);
     registerCommands();
+    updateDiscordStockDisplay(); // Initial update
   }).catch(err => {
     console.error("❌ Kesalahan Login Discord:", err.message);
     if (err.message.includes("TOKEN_INVALID")) {
@@ -858,6 +951,7 @@ async function startServer() {
     try {
       const stmt = db.prepare("UPDATE transactions SET barang = ? WHERE barang = ?");
       const info = stmt.run(newName, oldName);
+      updateDiscordStockDisplay();
       res.json({ success: true, affected: info.changes });
     } catch (err) {
       res.status(500).json({ error: "Database error" });
@@ -872,6 +966,7 @@ async function startServer() {
     try {
       const stmt = db.prepare("UPDATE transactions SET kategori = ? WHERE barang = ?");
       const info = stmt.run(category, name);
+      updateDiscordStockDisplay();
       res.json({ success: true, affected: info.changes });
     } catch (err) {
       res.status(500).json({ error: "Database error" });
@@ -940,6 +1035,7 @@ async function startServer() {
     try {
       const stmt = db.prepare("DELETE FROM transactions WHERE barang = ?");
       stmt.run(req.params.name);
+      updateDiscordStockDisplay();
       res.json({ success: true });
     } catch (err) {
       res.status(500).json({ error: "Database error" });
@@ -951,6 +1047,7 @@ async function startServer() {
     try {
       const stmt = db.prepare("DELETE FROM transactions WHERE id = ?");
       stmt.run(req.params.id);
+      updateDiscordStockDisplay();
       res.json({ success: true });
     } catch (err) {
       res.status(500).json({ error: "Database error" });
