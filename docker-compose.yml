@@ -1,0 +1,13 @@
+services:
+  app:
+    build: .
+    container_name: inventory-app
+    ports:
+      - "3000:3000"
+    environment:
+      - DISCORD_TOKEN=${DISCORD_TOKEN}
+      - DISCORD_CLIENT_ID=${DISCORD_CLIENT_ID}
+      - NODE_ENV=production
+    restart: always
+    volumes:
+      - ./inventory.db:/app/inventory.db

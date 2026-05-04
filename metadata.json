@@ -1,0 +1,6 @@
+{
+  "name": "Gudang Management",
+  "description": "Discord bot for tracking incoming/outgoing inventory connected to Google Sheets with a React dashboard.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["DISCORD_BOT", "GOOGLE_SHEETS"]
+}
