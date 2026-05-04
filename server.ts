@@ -8,6 +8,24 @@ import Database from "better-sqlite3";
 
 dotenv.config();
 
+// --- CONFIG LOADING ---
+let config = {
+  DISCORD_TOKEN: process.env.DISCORD_TOKEN,
+  DISCORD_CLIENT_ID: process.env.DISCORD_CLIENT_ID
+};
+
+const configPath = path.join(process.cwd(), "config.json");
+if (fs.existsSync(configPath)) {
+  try {
+    const fileConfig = JSON.parse(fs.readFileSync(configPath, "utf-8"));
+    if (fileConfig.DISCORD_TOKEN) config.DISCORD_TOKEN = fileConfig.DISCORD_TOKEN;
+    if (fileConfig.DISCORD_CLIENT_ID) config.DISCORD_CLIENT_ID = fileConfig.DISCORD_CLIENT_ID;
+    console.log("📂 Loaded Discord config from config.json");
+  } catch (err) {
+    console.warn("⚠️ Gagal membaca config.json, menggunakan environment variables.");
+  }
+}
+
 const PORT = Number(process.env.PORT) || 3000;
 
 // --- DATABASE SETUP (SQLite) ---
@@ -204,7 +222,7 @@ const commands = [
 ].map(cmd => cmd.toJSON());
 
 async function registerCommands() {
-  const { DISCORD_TOKEN, DISCORD_CLIENT_ID } = process.env;
+  const { DISCORD_TOKEN, DISCORD_CLIENT_ID } = config;
   if (!DISCORD_TOKEN || !DISCORD_CLIENT_ID) return;
 
   const rest = new REST({ version: "10" }).setToken(DISCORD_TOKEN);
@@ -761,24 +779,24 @@ client.on("messageCreate", async (message) => {
   }
 });
 
-if (process.env.DISCORD_TOKEN) {
+if (config.DISCORD_TOKEN) {
   console.log("📡 Mencoba menghubungkan bot ke Discord...");
-  client.login(process.env.DISCORD_TOKEN).then(() => {
+  client.login(config.DISCORD_TOKEN).then(() => {
     console.log(`✅ Bot berhasil login sebagai ${client.user?.tag}`);
     registerCommands();
   }).catch(err => {
     console.error("❌ Kesalahan Login Discord:", err.message);
     if (err.message.includes("TOKEN_INVALID")) {
-      console.error("👉 Masalah: Token tidak valid. Pastikan token di menu Settings > Secrets sudah benar.");
+      console.error("👉 Masalah: Token tidak valid. Pastikan token di config.json atau Settings > Secrets sudah benar.");
     }
   });
 } else {
-  console.warn("⚠️ PERINGATAN: DISCORD_TOKEN tidak ditemukan di environment variables.");
-  console.log("Saran: Masukkan DISCORD_TOKEN di menu Settings (ikon gir) > Secrets.");
+  console.warn("⚠️ PERINGATAN: DISCORD_TOKEN tidak ditemukan di config.json atau environment variables.");
+  console.log("Saran: Masukkan DISCORD_TOKEN di config.json atau menu Settings (ikon gir) > Secrets.");
 }
 
-if (!process.env.DISCORD_CLIENT_ID) {
-  console.warn("⚠️ WARNING: DISCORD_CLIENT_ID is missing in environment variables.");
+if (!config.DISCORD_CLIENT_ID) {
+  console.warn("⚠️ WARNING: DISCORD_CLIENT_ID is missing in config.json or environment variables.");
 }
 
 // --- START SERVER ---
