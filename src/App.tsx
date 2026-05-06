@@ -486,10 +486,10 @@ export default function App() {
                         {data.slice().reverse().map((item) => (
                           <tr key={item.id} className="hover:bg-slate-50 transition-colors group">
                             <td className="px-5 py-3 text-[10px] text-slate-400 font-medium">{formatDate(item.tanggal)}</td>
-                            <td className="px-5 py-3 font-bold text-sm text-slate-800">{item.barang}</td>
+                            <td className="px-5 py-3 font-bold text-sm text-slate-800 capitalize">{item.barang}</td>
                             <td className="px-5 py-3">
                               <span className="text-[9px] font-black uppercase tracking-widest text-slate-300">
-                                {item.kategori || "Umum"}
+                                {item.kategori || "umum"}
                               </span>
                             </td>
                             <td className="px-5 py-3">
@@ -616,7 +616,7 @@ export default function App() {
                           </div>
                         </div>
                         <div className="p-2.5 flex flex-col gap-1 bg-white">
-                          <h3 className="font-bold text-[10px] text-slate-800 leading-tight truncate px-0.5" title={name}>{name}</h3>
+                          <h3 className="font-bold text-[10px] text-slate-800 leading-tight truncate px-0.5 capitalize" title={name}>{name}</h3>
                           <div className="flex items-center justify-between px-0.5 mt-1">
                             <span className="text-[7px] font-bold text-slate-400 uppercase tracking-widest">Stok</span>
                             <span className={`text-xs font-black tracking-tight ${detail.qty <= 0 ? 'text-rose-500' : 'text-indigo-600'}`}>
@@ -648,7 +648,7 @@ export default function App() {
                             </span>
                           </td>
                           <td className="px-5 py-3">
-                            <div className="font-bold text-slate-900 text-sm">{name}</div>
+                            <div className="font-bold text-slate-900 text-sm capitalize">{name}</div>
                           </td>
                           <td className="px-5 py-3 text-right">
                             <span className={`text-sm font-black px-2 py-0.5 rounded-md ${detail.qty <= 0 ? 'bg-rose-100 text-rose-600' : 'bg-slate-100 text-slate-600'}`}>

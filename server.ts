@@ -43,6 +43,14 @@ const PORT = Number(process.env.PORT) || 3001;
 // --- DATABASE SETUP (SQLite) ---
 const db = new Database("inventory.db");
 
+// Data Migration: Normalize existing names to lowercase to fix duplication
+try {
+  db.prepare("UPDATE transactions SET barang = lower(barang), kategori = lower(kategori)").run();
+  console.log("🛠️ Data casing normalized successfully.");
+} catch (err) {
+  console.error("❌ Failed to normalize data casing:", err);
+}
+
 // --- BACKUP LOGIC ---
 function performBackup() {
   const backupDir = path.join(process.cwd(), "backups");
@@ -133,9 +141,12 @@ async function updateDiscordStockDisplay() {
     Object.entries(stock)
       .sort(([nameA], [nameB]) => nameA.localeCompare(nameB))
       .forEach(([name, detail]) => {
-        if (!categories[detail.kategori]) categories[detail.kategori] = [];
+        const catName = detail.kategori.charAt(0).toUpperCase() + detail.kategori.slice(1);
+        const displayName = name.charAt(0).toUpperCase() + name.slice(1);
+        
+        if (!categories[catName]) categories[catName] = [];
         const status = detail.qty <= 5 ? "⚠️" : (detail.qty === 0 ? "❌" : "✅");
-        categories[detail.kategori].push(`${status} **${name}**: \`${detail.qty}\``);
+        categories[catName].push(`${status} **${displayName}**: \`${detail.qty}\``);
       });
 
     const embed = new EmbedBuilder()
@@ -180,36 +191,38 @@ async function updateDiscordStockDisplay() {
 setInterval(updateDiscordStockDisplay, 5 * 60 * 1000);
 
 async function addTransactionToDB(data: any) {
-  let finalKategori = data.kategori || "Umum";
+  // Normalize item name for consistency
+  const barangNormalized = data.barang.trim().toLowerCase();
+  let finalKategori = (data.kategori || "umum").trim().toLowerCase();
 
   // 1. Database Lookup (Priority): Cari kategori terakhir dari barang yang sama
-  if (finalKategori === "Umum" || finalKategori === "Bulk") {
+  if (finalKategori === "umum" || finalKategori === "bulk") {
     try {
       const lastEntry = db.prepare(
-        "SELECT kategori FROM transactions WHERE lower(barang) = lower(?) AND kategori NOT IN ('Umum', 'Bulk') ORDER BY tanggal DESC LIMIT 1"
-      ).get(data.barang) as { kategori: string } | undefined;
+        "SELECT kategori FROM transactions WHERE barang = ? AND kategori NOT IN ('umum', 'bulk') ORDER BY tanggal DESC LIMIT 1"
+      ).get(barangNormalized) as { kategori: string } | undefined;
 
       if (lastEntry && lastEntry.kategori) {
         finalKategori = lastEntry.kategori;
-        console.log(`🧠 Smart Categorization (DB): Auto-detected ${data.barang} as [${finalKategori}]`);
+        console.log(`🧠 Smart Categorization (DB): Auto-detected ${barangNormalized} as [${finalKategori}]`);
       } else {
         // 2. Keyword Lookup (Fallback): Jika tidak ada di DB, gunakan kata kunci
-        const name = data.barang.toLowerCase();
+        const name = barangNormalized;
         
         const categories = {
-          "Minuman": ["water", "drink", "susu", "kopi", "teh", "juice", "air"],
-          "Medis": ["bandage", "kit", "antibiotics", "napkins", "obat", "vitamin", "p3k", "suntik", "alcohol"],
-          "Tools": ["axe", "pickaxe", "hammer", "wrench", "nail gun", "palu", "kapak", "bor", "gergaji"],
-          "Makanan": ["raw", "cooked", "deer", "boar", "pork", "coyote", "rabbit", "beef", "chicken", "fish", "flour", "sugar", "nuts", "rice", "fingers", "makan", "nasi", "burger", "daging", "snack", "buah", "indomie"],
-          "Umum": ["leather", "fabric", "plastic", "kit", "clothes", "shoes", "wallet", "armor", "rebar", "log", "cork", "besi", "scrap", "umum"],
-          "Item": ["rope", "rubber", "plank", "pipe", "shard", "bolt", "besi", "batu", "kayu", "part", "komponen", "item"]
+          "minuman": ["water", "drink", "susu", "kopi", "teh", "juice", "air"],
+          "medis": ["bandage", "kit", "antibiotics", "napkins", "obat", "vitamin", "p3k", "suntik", "alcohol"],
+          "tools": ["axe", "pickaxe", "hammer", "wrench", "nail gun", "palu", "kapak", "bor", "gergaji"],
+          "makanan": ["raw", "cooked", "deer", "boar", "pork", "coyote", "rabbit", "beef", "chicken", "fish", "flour", "sugar", "nuts", "rice", "fingers", "makan", "nasi", "burger", "daging", "snack", "buah", "indomie"],
+          "umum": ["leather", "fabric", "plastic", "kit", "clothes", "shoes", "wallet", "armor", "rebar", "log", "cork", "besi", "scrap", "umum"],
+          "item": ["rope", "rubber", "plank", "pipe", "shard", "bolt", "besi", "batu", "kayu", "part", "komponen", "item"]
         };
 
         let foundMatch = false;
         
         // Prioritas pertama untuk material dasar
         if (name.includes("besi") || name.includes("batu") || name.includes("kayu") || name.includes("bolt") || name.includes("shard")) {
-          finalKategori = "Item";
+          finalKategori = "item";
           foundMatch = true;
         } else {
           // Cek berdasarkan keyword kategori
@@ -217,15 +230,15 @@ async function addTransactionToDB(data: any) {
             if (keywords.some(kw => name.includes(kw))) {
               finalKategori = catName;
               foundMatch = true;
-              console.log(`🧠 Smart Categorization: Auto-detected ${data.barang} as [${finalKategori}]`);
+              console.log(`🧠 Smart Categorization: Auto-detected ${barangNormalized} as [${finalKategori}]`);
               break;
             }
           }
         }
 
-        // 3. Final Fallback: Jika benar-benar tidak tahu, gunakan "Item"
+        // 3. Final Fallback: Jika benar-benar tidak tahu, gunakan "item"
         if (!foundMatch) {
-          finalKategori = "Item";
+          finalKategori = "item";
         }
       }
     } catch (err) {
@@ -238,12 +251,12 @@ async function addTransactionToDB(data: any) {
   );
   // Simpan jumlah sebagai angka positif, logika sign ditangani saat kalkulasi
   const jumlahAbs = Math.abs(Number(data.jumlah));
-  stmt.run(data.barang, jumlahAbs, data.tipe, data.keterangan, data.oleh, finalKategori, data.image_url || null, data.icon || null);
+  stmt.run(barangNormalized, jumlahAbs, data.tipe, data.keterangan, data.oleh, finalKategori, data.image_url || null, data.icon || null);
   
   // Update Discord display after transaction (background)
   updateDiscordStockDisplay();
 
-  return { ...data, kategori: finalKategori };
+  return { ...data, barang: barangNormalized, kategori: finalKategori };
 }
 
 async function getTransactionsFromDB() {
@@ -948,9 +961,12 @@ async function startServer() {
     const { oldName, newName } = req.body;
     if (!oldName || !newName) return res.status(400).json({ error: "Missing names" });
 
+    const oldNormalized = oldName.trim().toLowerCase();
+    const newNormalized = newName.trim().toLowerCase();
+
     try {
       const stmt = db.prepare("UPDATE transactions SET barang = ? WHERE barang = ?");
-      const info = stmt.run(newName, oldName);
+      const info = stmt.run(newNormalized, oldNormalized);
       updateDiscordStockDisplay();
       res.json({ success: true, affected: info.changes });
     } catch (err) {
@@ -963,9 +979,12 @@ async function startServer() {
     const { name, category } = req.body;
     if (!name || !category) return res.status(400).json({ error: "Missing data" });
 
+    const nameNormalized = name.trim().toLowerCase();
+    const catNormalized = category.trim().toLowerCase();
+
     try {
       const stmt = db.prepare("UPDATE transactions SET kategori = ? WHERE barang = ?");
-      const info = stmt.run(category, name);
+      const info = stmt.run(catNormalized, nameNormalized);
       updateDiscordStockDisplay();
       res.json({ success: true, affected: info.changes });
     } catch (err) {
@@ -998,6 +1017,9 @@ async function startServer() {
     const { name, targetQty, note, category, image_url, icon } = req.body;
     if (!name || targetQty === undefined) return res.status(400).json({ error: "Missing data" });
 
+    const normalizedName = name.trim().toLowerCase();
+    const normalizedCat = category ? category.trim().toLowerCase() : null;
+
     try {
       const data = db.prepare("SELECT * FROM transactions WHERE barang = ?").all();
       let currentQty = 0;
@@ -1007,9 +1029,9 @@ async function startServer() {
       });
 
       // Update metadata for all transactions of this item if provided
-      if (category || image_url || icon) {
+      if (normalizedCat || image_url || icon) {
         db.prepare("UPDATE transactions SET kategori = COALESCE(?, kategori), image_url = COALESCE(?, image_url), icon = COALESCE(?, icon) WHERE barang = ?")
-          .run(category || null, image_url || null, icon || null, name);
+          .run(normalizedCat || null, image_url || null, icon || null, normalizedName);
       }
 
       const diff = targetQty - currentQty;
@@ -1023,7 +1045,7 @@ async function startServer() {
       const stmt = db.prepare(
         "INSERT INTO transactions (barang, jumlah, tipe, keterangan, oleh, kategori, image_url, icon) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
       );
-      stmt.run(name, Math.abs(diff), tipe, note || "Penyesuaian Stok", "System (Web)", category || "Umum", image_url || null, icon || null);
+      stmt.run(normalizedName, Math.abs(diff), tipe, note || "Penyesuaian Stok", "System (Web)", normalizedCat || "umum", image_url || null, icon || null);
       res.json({ success: true });
     } catch (err) {
       res.status(500).json({ error: "Database error" });
@@ -1033,8 +1055,9 @@ async function startServer() {
   // Delete everything for an item
   app.delete("/api/item/:name", (req, res) => {
     try {
+      const normalizedName = req.params.name.trim().toLowerCase();
       const stmt = db.prepare("DELETE FROM transactions WHERE barang = ?");
-      stmt.run(req.params.name);
+      stmt.run(normalizedName);
       updateDiscordStockDisplay();
       res.json({ success: true });
     } catch (err) {
