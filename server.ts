@@ -190,10 +190,92 @@ async function updateDiscordStockDisplay() {
 // Update berkala setiap 5 menit
 setInterval(updateDiscordStockDisplay, 5 * 60 * 1000);
 
+// --- AUTO-CORRECT LOGIC (Levenshtein Distance) ---
+function getSimilarity(s1: string, s2: string) {
+  let longer = s1;
+  let shorter = s2;
+  if (s1.length < s2.length) {
+    longer = s2;
+    shorter = s1;
+  }
+  const longerLength = longer.length;
+  if (longerLength === 0) return 1.0;
+  return (longerLength - editDistance(longer, shorter)) / longerLength;
+}
+
+function editDistance(s1: string, s2: string) {
+  s1 = s1.toLowerCase();
+  s2 = s2.toLowerCase();
+  const costs = new Array();
+  for (let i = 0; i <= s1.length; i++) {
+    let lastValue = i;
+    for (let j = 0; j <= s2.length; j++) {
+      if (i === 0) costs[j] = j;
+      else {
+        if (j > 0) {
+          let newValue = costs[j - 1];
+          if (s1.charAt(i - 1) !== s2.charAt(j - 1))
+            newValue = Math.min(Math.min(newValue, lastValue), costs[j]) + 1;
+          costs[j - 1] = lastValue;
+          lastValue = newValue;
+        }
+      }
+    }
+    if (i > 0) costs[s2.length] = lastValue;
+  }
+  return costs[s2.length];
+}
+
 async function addTransactionToDB(data: any) {
   // Normalize item name for consistency
-  const barangNormalized = data.barang.trim().toLowerCase();
+  let barangNormalized = data.barang.trim().toLowerCase();
+  
+  // Membersihkan karakter sampah yang sering terbawa dari sistem bulk (seperti | atau :)
+  if (barangNormalized.includes('|')) barangNormalized = barangNormalized.split('|')[0].trim();
+  if (barangNormalized.includes(':')) barangNormalized = barangNormalized.split(':').slice(0, -1).join(':').trim();
+  
   let finalKategori = (data.kategori || "umum").trim().toLowerCase();
+
+  // --- AUTO-CORRECT SYSTEM ---
+  try {
+    const existingItems = db.prepare("SELECT DISTINCT barang, kategori FROM transactions").all() as { barang: string, kategori: string }[];
+    let bestMatch = "";
+    let highestSimilarity = 0;
+    let matchKategori = "";
+
+    for (const item of existingItems) {
+      const sim = getSimilarity(barangNormalized, item.barang);
+      if (sim > highestSimilarity) {
+        highestSimilarity = sim;
+        bestMatch = item.barang;
+        matchKategori = item.kategori;
+      }
+    }
+
+    // Threshold: Jika kemiripan > 80% dan jarak edit maksimal 3 karakter
+    const dist = editDistance(barangNormalized, bestMatch);
+    if (highestSimilarity >= 0.8 && dist <= 3) {
+      if (highestSimilarity < 1.0) {
+        console.log(`✨ Auto-Correct: Detected typo "${barangNormalized}", corrected to "${bestMatch}" (Sim: ${Math.round(highestSimilarity * 100)}%)`);
+      }
+      barangNormalized = bestMatch;
+      // Jika kita mengoreksi typo, kita juga harus mengikuti kategori barang aslinya
+      if (matchKategori && (finalKategori === "umum" || finalKategori === "bulk")) {
+        finalKategori = matchKategori;
+      }
+    }
+  } catch (err) {
+    console.error("❌ Auto-Correct Error:", err);
+  }
+
+  // Hapus akhiran kategori jika ada di nama barang (misal: "medkit medis" -> "medkit")
+  const categoryNames = ["makanan", "medis", "tools", "minuman", "senjata", "item", "umum"];
+  for (const cat of categoryNames) {
+    if (barangNormalized.endsWith(" " + cat) && barangNormalized.length > cat.length + 2) {
+      console.log(`✂️ Stripping category suffix: "${barangNormalized}" -> "${barangNormalized.substring(0, barangNormalized.length - cat.length).trim()}"`);
+      barangNormalized = barangNormalized.substring(0, barangNormalized.length - cat.length).trim();
+    }
+  }
 
   // 1. Database Lookup (Priority): Cari kategori terakhir dari barang yang sama
   if (finalKategori === "umum" || finalKategori === "bulk") {
