@@ -669,6 +669,7 @@ client.on("interactionCreate", async (interaction) => {
         .setFooter({ text: "Inventory System Bot", iconURL: user.displayAvatarURL() });
 
       await interaction.editReply({ embeds: [embed] });
+      return;
     } else if (commandName === "stok") {
       console.log("Processing command: stok");
       const data = await getTransactionsFromDB();
@@ -696,6 +697,7 @@ client.on("interactionCreate", async (interaction) => {
         .setFooter({ text: "Inventory System Bot" });
 
       await interaction.editReply({ embeds: [embed] });
+      return;
     } else if (commandName === "log") {
       console.log("Processing command: log");
       const data = await getTransactionsFromDB();
@@ -715,6 +717,7 @@ client.on("interactionCreate", async (interaction) => {
         .setFooter({ text: "Hanya menampilkan 10 transaksi terakhir." });
 
       await interaction.editReply({ embeds: [embed] });
+      return;
     } else if (commandName === "allstock") {
       console.log("Processing command: allstock");
       const data = await getTransactionsFromDB();
@@ -751,6 +754,7 @@ client.on("interactionCreate", async (interaction) => {
       }
 
       await interaction.editReply({ embeds: [embed] });
+      return;
     } else if (commandName === "bulk") {
       const modal = new ModalBuilder()
         .setCustomId("bulk_inventory_form")
@@ -1020,6 +1024,47 @@ client.on("messageCreate", async (message) => {
            .setFooter({ text: "Inventory Public Logging", iconURL: message.client.user?.displayAvatarURL() });
 
       await message.reply({ embeds: [embed] });
+    } else if (command === "register") {
+      await registerCommands();
+      await message.reply("📡 Mencoba mendaftarkan ulang perintah slash (/) ke Discord. Silakan cek daftar perintah di Discord dalam beberapa detik.");
+    } else if (command === "ping") {
+      const pingStatus = client.ws.ping;
+      const responseTime = Date.now() - message.createdTimestamp;
+      await message.reply(`🏓 Pong!\nLatensi Bot: \`${responseTime}ms\`\nAPI Gateway: \`${pingStatus}ms\``);
+    } else if (command === "status") {
+      const uptimeSec = process.uptime();
+      const h = Math.floor(uptimeSec / 3600);
+      const m = Math.floor((uptimeSec % 3600) / 60);
+      const s = Math.floor(uptimeSec % 60);
+      let dbStat = "✅ Berjalan";
+      try { db.prepare("SELECT 1").get(); } catch (err) { dbStat = "❌ Error"; }
+      const statEmbed = new EmbedBuilder()
+        .setTitle("🖥️ Status Server Inventory")
+        .setColor(0x60a5fa)
+        .addFields(
+          { name: "⏱️ Uptime", value: `\`${h}j ${m}m ${s}d\``, inline: true },
+          { name: "🗄️ Database", value: dbStat, inline: true },
+          { name: "📈 Gateway", value: `\`${client.ws.ping}ms\``, inline: true }
+        )
+        .setTimestamp();
+      await message.reply({ embeds: [statEmbed] });
+    } else if (command === "help") {
+      const hEmbed = new EmbedBuilder()
+        .setTitle("📖 Bantuan Perintah Bot (Prefix: !)")
+        .setColor(0x34d399)
+        .setDescription("Daftar perintah yang tersedia:")
+        .addFields(
+          { name: "!masuk [nama] [jumlah] [ket?]", value: "Catat barang masuk" },
+          { name: "!keluar [nama] [jumlah] [ket?]", value: "Catat barang keluar" },
+          { name: "!stok", value: "Cek ringkasan stok" },
+          { name: "!allstock", value: "Cek stok lengkap per kategori" },
+          { name: "!log", value: "Lihat ringkasan aktivitas" },
+          { name: "!bulk [data]", value: "Input massal (satu data per baris)" },
+          { name: "!ping", value: "Cek latensi bot" },
+          { name: "!status", value: "Cek status server" },
+          { name: "!register", value: "Daftarkan ulang slash command (/)" }
+        );
+      await message.reply({ embeds: [hEmbed] });
     }
   } catch (err) {
     console.error("Prefix Command Error:", err);
