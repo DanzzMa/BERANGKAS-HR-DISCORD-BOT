@@ -970,22 +970,35 @@ client.on("messageCreate", async (message) => {
   }
 });
 
-if (config.DISCORD_TOKEN) {
+async function connectToDiscord() {
+  if (!config.DISCORD_TOKEN) {
+    console.warn("⚠️ PERINGATAN: DISCORD_TOKEN tidak ditemukan di config.json atau environment variables.");
+    console.log("Saran: Masukkan DISCORD_TOKEN di config.json atau menu Settings (ikon gir) > Secrets.");
+    return;
+  }
+
   console.log("📡 Mencoba menghubungkan bot ke Discord...");
-  client.login(config.DISCORD_TOKEN).then(() => {
+  try {
+    await client.login(config.DISCORD_TOKEN);
     console.log(`✅ Bot berhasil login sebagai ${client.user?.tag}`);
-    registerCommands();
-    updateDiscordStockDisplay(); // Initial update
-  }).catch(err => {
+    await registerCommands();
+    await updateDiscordStockDisplay(); // Initial update
+  } catch (err: any) {
     console.error("❌ Kesalahan Login Discord:", err.message);
-    if (err.message.includes("TOKEN_INVALID")) {
+    
+    if (err.message.includes("EAI_AGAIN") || err.message.includes("ECONNRESET") || err.message.includes("ETIMEDOUT")) {
+      console.log("🔄 Koneksi bermasalah (DNS/Jaringan), mencoba lagi dalam 30 detik...");
+      setTimeout(connectToDiscord, 30000);
+    } else if (err.message.includes("TOKEN_INVALID")) {
       console.error("👉 Masalah: Token tidak valid. Pastikan token di config.json atau Settings > Secrets sudah benar.");
+    } else {
+      console.log("🔄 Mencoba menghubungkan kembali dalam 1 menit...");
+      setTimeout(connectToDiscord, 60000);
     }
-  });
-} else {
-  console.warn("⚠️ PERINGATAN: DISCORD_TOKEN tidak ditemukan di config.json atau environment variables.");
-  console.log("Saran: Masukkan DISCORD_TOKEN di config.json atau menu Settings (ikon gir) > Secrets.");
+  }
 }
+
+connectToDiscord();
 
 if (!config.DISCORD_CLIENT_ID) {
   console.warn("⚠️ WARNING: DISCORD_CLIENT_ID is missing in config.json or environment variables.");
