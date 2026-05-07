@@ -410,6 +410,12 @@ const commands = [
   new SlashCommandBuilder()
     .setName("bulk")
     .setDescription("Masukkkan/keluar barang dalam jumlah banyak sekaligus"),
+  new SlashCommandBuilder()
+    .setName("ping")
+    .setDescription("Cek latensi bot"),
+  new SlashCommandBuilder()
+    .setName("status")
+    .setDescription("Cek status server dan database"),
 ].map(cmd => cmd.toJSON());
 
 async function registerCommands() {
@@ -761,6 +767,57 @@ client.on("interactionCreate", async (interaction) => {
       modal.addComponents(row);
 
       await interaction.showModal(modal);
+      return;
+    }
+
+    if (commandName === "ping") {
+      const ping = client.ws.ping;
+      const responseTime = Date.now() - interaction.createdTimestamp;
+
+      const embed = new EmbedBuilder()
+        .setTitle("🏓 Pong!")
+        .setColor(0x34d399)
+        .addFields(
+          { name: "📡 Bot Latency", value: `\`${responseTime}ms\``, inline: true },
+          { name: "🌐 API Latency", value: `\`${ping}ms\``, inline: true }
+        )
+        .setTimestamp();
+
+      await interaction.editReply({ embeds: [embed] });
+      return;
+    }
+
+    if (commandName === "status") {
+      const uptime = process.uptime();
+      const hours = Math.floor(uptime / 3600);
+      const minutes = Math.floor((uptime % 3600) / 60);
+      const seconds = Math.floor(uptime % 60);
+
+      const memUsage = process.memoryUsage();
+      const rss = Math.round(memUsage.rss / 1024 / 1024 * 100) / 100;
+
+      let dbStatus = "✅ Berjalan";
+      try {
+        db.prepare("SELECT 1").get();
+      } catch (err) {
+        dbStatus = "❌ Error";
+      }
+
+      const embed = new EmbedBuilder()
+        .setTitle("🖥️ Status Server Inventory")
+        .setColor(0x60a5fa)
+        .addFields(
+          { name: "⏱️ Uptime", value: `\`${hours}j ${minutes}m ${seconds}d\``, inline: true },
+          { name: "🧠 Memori", value: `\`${rss} MB\``, inline: true },
+          { name: "🗄️ Database", value: dbStatus, inline: true },
+          { name: "🛡️ Bot Tag", value: `\`${client.user?.tag}\``, inline: true },
+          { name: "📈 Gateway", value: `\`${client.ws.ping}ms\``, inline: true }
+        )
+        .setFooter({ text: "Inventory Server Health Monitor" })
+        .setTimestamp();
+
+      await interaction.editReply({ embeds: [embed] });
+      return;
     }
   } catch (err) {
     console.error("Interaction Error:", err);
@@ -970,35 +1027,54 @@ client.on("messageCreate", async (message) => {
   }
 });
 
+import dns from "dns";
+
+// --- VALIDASI KONEKSI INTERNET ---
+function checkInternetAndConnect() {
+  console.log("🌐 Mengecek koneksi internet server...");
+  dns.lookup("google.com", (err) => {
+    if (err) {
+      console.error("🚨 SERVER TIDAK PUNYA KONEKSI INTERNET ATAU DNS RUSAK!");
+      console.error("Detail Error:", err.code);
+      console.log("🔄 Mencoba cek ulang internet dalam 30 detik...");
+      setTimeout(checkInternetAndConnect, 30000);
+    } else {
+      console.log("✅ Internet server terverifikasi. Melanjutkan ke Discord...");
+      connectToDiscord();
+    }
+  });
+}
+
 async function connectToDiscord() {
   if (!config.DISCORD_TOKEN) {
     console.warn("⚠️ PERINGATAN: DISCORD_TOKEN tidak ditemukan di config.json atau environment variables.");
-    console.log("Saran: Masukkan DISCORD_TOKEN di config.json atau menu Settings (ikon gir) > Secrets.");
     return;
   }
 
-  console.log("📡 Mencoba menghubungkan bot ke Discord...");
   try {
+    console.log("📡 Mencoba login ke Discord...");
     await client.login(config.DISCORD_TOKEN);
     console.log(`✅ Bot berhasil login sebagai ${client.user?.tag}`);
     await registerCommands();
-    await updateDiscordStockDisplay(); // Initial update
+    await updateDiscordStockDisplay();
   } catch (err: any) {
     console.error("❌ Kesalahan Login Discord:", err.message);
     
-    if (err.message.includes("EAI_AGAIN") || err.message.includes("ECONNRESET") || err.message.includes("ETIMEDOUT")) {
-      console.log("🔄 Koneksi bermasalah (DNS/Jaringan), mencoba lagi dalam 30 detik...");
-      setTimeout(connectToDiscord, 30000);
+    // Jika gagal karena DNS atau Jaringan
+    if (err.message.includes("EAI_AGAIN") || err.message.includes("ENOTFOUND") || err.message.includes("ECONNRESET") || err.message.includes("ETIMEDOUT")) {
+      console.log("🔄 Masalah jaringan terdeteksi. Mencoba hubungkan kembali dalam 45 detik...");
+      setTimeout(connectToDiscord, 45000);
     } else if (err.message.includes("TOKEN_INVALID")) {
-      console.error("👉 Masalah: Token tidak valid. Pastikan token di config.json atau Settings > Secrets sudah benar.");
+      console.error("👉 Token Discord salah! Mohon periksa config.json.");
     } else {
-      console.log("🔄 Mencoba menghubungkan kembali dalam 1 menit...");
+      console.log("🔄 Mencoba ulang dalam 60 detik...");
       setTimeout(connectToDiscord, 60000);
     }
   }
 }
 
-connectToDiscord();
+// Ganti pemanggilan langsung sebelumnya dengan pengecekan koneksi
+checkInternetAndConnect();
 
 if (!config.DISCORD_CLIENT_ID) {
   console.warn("⚠️ WARNING: DISCORD_CLIENT_ID is missing in config.json or environment variables.");
